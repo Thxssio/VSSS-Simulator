@@ -6,11 +6,14 @@ export default function Field() {
   const canvasRef = useRef(null);
   const scale = 5;
 
+  const ROBOT_RADIUS = 3.75; // cm (metade de 7.5cm)
+  const BALL_RADIUS = 2; // cm
+
   const robotsRef = useRef([
     { x: 30, y: 30, theta: 0, vl: 0, vr: 0, team: 'blue', idColors: ['red', 'green'] },
     { x: 100, y: 80, theta: 0, vl: 0, vr: 0, team: 'yellow', idColors: ['purple', 'cyan'] },
   ]);
-  const ballRef = useRef({ x: 75, y: 65, vx: 0, vy: 0 });
+  const ballRef = useRef({ x: 75, y: 65, vx: 0, vy: 0, angular: 0 });
   const lastTimeRef = useRef(performance.now());
 
   useEffect(() => {
@@ -18,13 +21,51 @@ export default function Field() {
     const ctx = canvas.getContext('2d');
 
     function update(dt) {
-      const L = 5.5; // distância entre rodas (cm)
-      robotsRef.current.forEach((r) => {
+      const L = 5.5;
+
+      // Atualiza robôs e checa colisão com bola e entre robôs
+      robotsRef.current.forEach((r, i) => {
         const v = (r.vl + r.vr) / 2;
         const w = (r.vr - r.vl) / L;
         r.theta += w * dt;
         r.x += v * Math.cos(r.theta) * dt;
         r.y += v * Math.sin(r.theta) * dt;
+
+        // Colisão com bola (baseada em bordas)
+        const ball = ballRef.current;
+        const dx = ball.x - r.x;
+        const dy = ball.y - r.y;
+        const dist = Math.hypot(dx, dy);
+        const minDist = ROBOT_RADIUS + BALL_RADIUS;
+
+        if (dist < minDist) {
+          const overlap = minDist - dist;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          ball.x += nx * overlap;
+          ball.y += ny * overlap;
+          ball.vx = nx * 30;
+          ball.vy = ny * 30;
+          ball.angular += 5 * (Math.random() - 0.5);
+        }
+
+        // Colisão com outros robôs (simplificado)
+        for (let j = 0; j < robotsRef.current.length; j++) {
+          if (i === j) continue;
+          const r2 = robotsRef.current[j];
+          const dx2 = r2.x - r.x;
+          const dy2 = r2.y - r.y;
+          const dist2 = Math.hypot(dx2, dy2);
+          if (dist2 < ROBOT_RADIUS * 2) {
+            const overlap = 2 * ROBOT_RADIUS - dist2;
+            const nx = dx2 / dist2;
+            const ny = dy2 / dist2;
+            r.x -= nx * overlap / 2;
+            r.y -= ny * overlap / 2;
+            r2.x += nx * overlap / 2;
+            r2.y += ny * overlap / 2;
+          }
+        }
       });
 
       const ball = ballRef.current;
@@ -34,12 +75,29 @@ export default function Field() {
       const friction = 0.98;
       ball.vx *= friction;
       ball.vy *= friction;
+      ball.angular *= friction;
 
-      if (ball.x < 2) { ball.x = 2; ball.vx *= -0.5; }
-      if (ball.x > 148) { ball.x = 148; ball.vx *= -0.5; }
-      if (ball.y < 2) { ball.y = 2; ball.vy *= -0.5; }
-      if (ball.y > 128) { ball.y = 128; ball.vy *= -0.5; }
+      if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx *= -0.5; }
+      if (ball.x > 150 - BALL_RADIUS) { ball.x = 150 - BALL_RADIUS; ball.vx *= -0.5; }
+      if (ball.y < BALL_RADIUS) { ball.y = BALL_RADIUS; ball.vy *= -0.5; }
+      if (ball.y > 130 - BALL_RADIUS) { ball.y = 130 - BALL_RADIUS; ball.vy *= -0.5; }
     }
+
+    function handleKeyDown(e) {
+      const r = robotsRef.current[0];
+      if (!r) return;
+
+      switch (e.key) {
+        case 'w': r.vl = 10; r.vr = 10; break;
+        case 's': r.vl = -10; r.vr = -10; break;
+        case 'a': r.vl = -5; r.vr = 5; break;
+        case 'd': r.vl = 5; r.vr = -5; break;
+        case ' ': r.vl = 0; r.vr = 0; break;
+        default: break;
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
 
     function loop() {
       const now = performance.now();
@@ -52,6 +110,10 @@ export default function Field() {
     }
 
     requestAnimationFrame(loop);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   const drawDynamics = (ctx) => {
@@ -61,7 +123,7 @@ export default function Field() {
       drawRobot(ctx, robot.x * scale, robot.y * scale, robot.theta, robot.team, robot.idColors, scale);
     });
 
-    drawBall(ctx, ballRef.current.x * scale, ballRef.current.y * scale, scale);
+    drawBall(ctx, ballRef.current.x * scale, ballRef.current.y * scale, scale, ballRef.current.angular);
   };
 
   const drawStaticField = (ctx) => {
